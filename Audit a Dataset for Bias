@@ -1,0 +1,49 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from aif360.datasets import CompasDataset
+from aif360.metrics import BinaryLabelDatasetMetric, ClassificationMetric
+from aif360.algorithms.preprocessing import Reweighing
+
+# Load and preprocess COMPAS dataset
+compas_data = CompasDataset()
+privileged_groups = [{'race': 1}]  # Caucasian
+unprivileged_groups = [{'race': 0}]  # African-American
+
+# Calculate fairness metrics
+metric = BinaryLabelDatasetMetric(compas_data, 
+                                 unprivileged_groups=unprivileged_groups,
+                                 privileged_groups=privileged_groups)
+
+# Extract false positive rates
+dataset_pred = compas_data.copy()
+dataset_pred.labels = compas_data.scores
+class_metric = ClassificationMetric(compas_data, dataset_pred,
+                                   unprivileged_groups=unprivileged_groups,
+                                   privileged_groups=privileged_groups)
+
+# Visualize disparities
+fpr_diff = class_metric.false_positive_rate_difference()
+fpr_priv = class_metric.false_positive_rate(privileged=True)
+fpr_unpriv = class_metric.false_positive_rate(privileged=False)
+
+# Plot FPR disparity
+plt.figure(figsize=(8, 6))
+plt.bar(['Caucasian', 'African-American'], [fpr_priv, fpr_unpriv], color=['blue', 'orange'])
+plt.title('False Positive Rates by Race')
+plt.ylabel('False Positive Rate')
+plt.text(0.5, max(fpr_priv, fpr_unpriv) * 0.9, f'FPR Difference: {fpr_diff:.3f}', 
+         ha='center', va='center', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+plt.savefig('fpr_disparity.png')
+plt.close()
+
+# Apply Reweighing to mitigate bias
+reweigh = Reweighing(unprivileged_groups=unprivileged_groups, privileged_groups=privileged_groups)
+compas_transf = reweigh.fit_transform(compas_data)
+
+# Recalculate metrics after mitigation
+metric_transf = BinaryLabelDatasetMetric(compas_transf, 
+                                       unprivileged_groups=unprivileged_groups,
+                                       privileged_groups=privileged_groups)
+print(f"Disparate Impact (Before): {metric.disparate_impact():.3f}")
+print(f"Disparate Impact (After): {metric_transf.disparate_impact():.3f}")
